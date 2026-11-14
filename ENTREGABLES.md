@@ -11,6 +11,7 @@
 | IA (antes de corregir) | `npm run test:ai` | 37 pasan, 20 fallan |
 | IA (después de corregir) | `npm run test:ai` | 57/57 |
 | Suite final | `npm test` | 57/57 |
+| Build final | `npm run build` | OK (1.26s) |
 
 ## 2. Revisión de diffs por hook
 
