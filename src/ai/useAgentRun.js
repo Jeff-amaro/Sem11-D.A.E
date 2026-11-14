@@ -1,55 +1,62 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const IDLE = { status: "idle", plan: null, result: null, error: null };
 
 export default function useAgentRun(runAgent) {
   const [run, setRun] = useState(IDLE);
+  const latestRef = useRef(IDLE);
+  const controllerRef = useRef(null);
 
-  if (!runAgent) {
-    return { ...IDLE, start: () => {}, approve: () => {}, reject: () => {} };
-  }
-
-  const latest = useRef(IDLE);
-  const controller = useRef(null);
-
-  const update = (next) => {
-    latest.current = next;
+  const update = useCallback((next) => {
+    latestRef.current = next;
     setRun(next);
-  };
+  }, []);
 
   const start = useCallback(
     (plan) => {
-      const { status } = latest.current;
-      if (status === "running" || status === "awaiting_approval") return;
+      if (!runAgent) return;
 
-      const current = new AbortController();
-      controller.current = current;
+      const current = latestRef.current;
+      if (current.status === "running" || current.status === "awaiting_approval") return;
+
+      const controller = new AbortController();
+      controllerRef.current = controller;
       update({ status: "running", plan, result: null, error: null });
 
-      runAgent(plan, { signal: current.signal }).then(
+      runAgent(plan, { signal: controller.signal }).then(
         (result) => {
-          if (current.signal.aborted) return;
-          update({ status: "done", plan, result, error: null });
+          if (controller.signal.aborted) return;
+          if (plan?.risk === "R2") {
+            update({ status: "awaiting_approval", plan, result, error: null });
+          } else {
+            update({ status: "done", plan, result, error: null });
+          }
         },
         (error) => {
-          if (current.signal.aborted) return;
+          if (controller.signal.aborted) return;
           update({ status: "error", plan, result: null, error });
         }
       );
     },
-    [runAgent]
+    [runAgent, update]
   );
 
   const approve = useCallback(() => {
-    if (latest.current.status !== "awaiting_approval") return;
-    update({ ...latest.current, status: "done" });
-  }, []);
+    if (latestRef.current.status !== "awaiting_approval") return;
+    update({ ...latestRef.current, status: "done" });
+  }, [update]);
 
   const reject = useCallback(() => {
-    const { status } = latest.current;
-    if (status !== "running" && status !== "awaiting_approval") return;
-    controller.current?.abort();
+    const current = latestRef.current;
+    if (current.status !== "running" && current.status !== "awaiting_approval") return;
+    controllerRef.current?.abort();
     update(IDLE);
+  }, [update]);
+
+  useEffect(() => {
+    return () => {
+      controllerRef.current?.abort();
+    };
   }, []);
 
   return { ...run, start, approve, reject };
